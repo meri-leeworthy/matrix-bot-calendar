@@ -1,0 +1,2 @@
+# defaults/main.yml
+matrixcalbot_host: "matrix.arcup.org"

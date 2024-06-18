@@ -1,0 +1,12 @@
+matrixcalbot_image: "matrix_calendar_bot:latest"
+matrixcalbot_container_name: "matrix_calendar_bot"
+matrixcalbot_service_name: "matrixcalbot"
+matrixcalbot_port: 8000
+matrixcalbot_env_file: "/matrix/{{matrixcalbot_service_name}}/.env"
+
+caldav_url: "{{ lookup('env', 'CALDAV_URL') }}"
+caldav_username: "{{ lookup('env', 'CALDAV_USERNAME') }}"
+caldav_password: "{{ lookup('env', 'CALDAV_PASSWORD') }}"
+matrix_server_url: "{{ lookup('env', 'MATRIX_SERVER_URL') }}"
+matrix_bot_username: "{{ lookup('env', 'MATRIX_BOT_USERNAME') }}"
+matrix_bot_password: "{{ lookup('env', 'MATRIX_BOT_PASSWORD') }}"

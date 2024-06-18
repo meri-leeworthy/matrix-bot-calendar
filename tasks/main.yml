@@ -1,0 +1,80 @@
+# tasks/main.yml
+---
+
+- tags:
+    - setup-all
+    - setup-matrix-bot-calendar
+    - install-all
+    - install-matrix-bot-calendar
+  block:
+    # - name: Ensure Docker is installed
+    #   ansible.builtin.include_role:
+    #     name: geerlingguy.docker
+
+    - name: Create directory for matrixcalbot
+      ansible.builtin.file:
+        path: /matrix/matrixcalbot
+        state: directory
+        mode: '0755'
+
+    - name: Copy Dockerfile to the target machine
+      ansible.builtin.copy:
+        src: Dockerfile
+        dest: /matrix/matrixcalbot/Dockerfile
+
+    - name: Copy .env to the target machine
+      ansible.builtin.copy:
+        src: .env
+        dest: /matrix/matrixcalbot/.env
+
+    - name: Copy Rust source files to the target machine
+      ansible.builtin.copy:
+        src: src/
+        dest: /matrix/matrixcalbot/src/
+        mode: '0755'
+        # recursive: yes
+
+    - name: Copy Cargo.toml to the target machine
+      ansible.builtin.copy:
+        src: Cargo.toml
+        dest: /matrix/matrixcalbot/Cargo.toml
+      
+    - name: Copy Cargo.lock to the target machine
+      ansible.builtin.copy:
+        src: Cargo.lock
+        dest: /matrix/matrixcalbot/Cargo.lock
+
+    - name: Build Docker image
+      ansible.builtin.command:
+        cmd: docker build -t {{ matrixcalbot_image }} /matrix/matrixcalbot
+      args:
+        chdir: /matrix/matrixcalbot
+
+    - name: Create systemd service file
+      ansible.builtin.template:
+        src: matrixcalbot.service.j2
+        dest: /etc/systemd/system/{{ matrixcalbot_service_name }}.service
+      notify: Reload systemd
+
+- tags:
+    - start
+  block:
+    - name: Run Matrix Bot container
+      docker_container:
+        name: "{{ matrixcalbot_container_name }}"
+        image: "{{ matrixcalbot_image }}"
+        env_file: "{{ matrixcalbot_env_file }}"
+        restart_policy: always
+        labels:
+          traefik.enable: "true"
+          traefik.http.routers.matrix_calendar_bot.rule: "Host(`{{ matrixcalbot_host }}`)"
+          traefik.http.services.matrix_calendar_bot.loadbalancer.server.port: "{{ matrixcalbot_port | string }}"
+        networks:
+          - name: matrix
+          - name: traefik
+
+    - name: Enable and start matrixcalbot service
+      ansible.builtin.systemd:
+        name: "{{ matrixcalbot_service_name }}"
+        enabled: yes
+        state: started

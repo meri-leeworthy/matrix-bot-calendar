@@ -1,0 +1,15 @@
+# handlers/main.yml
+- tags:
+    - start
+  block:
+    - name: Reload systemd
+      ansible.builtin.systemd:
+        daemon_reload: yes
+
+    - name: Restart matrixcalbot
+      ansible.builtin.systemd:
+        name: "{{ matrixcalbot_service_name }}"
+        state: restarted
+
+    - name: Build Docker Image
+      ansible.builtin.command: docker build -t {{ matrixcalbot_image }} /opt/matrixcalbot

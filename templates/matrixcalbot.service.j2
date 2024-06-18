@@ -1,0 +1,16 @@
+[Unit]
+Description=Matrix Bot Service
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/docker run --rm --name {{ matrixcalbot_container_name }} -p {{ matrixcalbot_port }}:8000 \
+    --env-file {{ matrixcalbot_env_file }} \
+    --label traefik.enable=true \
+    --label traefik.http.routers.matrix_bot.rule=Host(`{{ matrixcalbot_host }}`) \
+    --label traefik.http.services.matrix_bot.loadbalancer.server.port={{ matrixcalbot_port | string }} \
+    {{ matrixcalbot_image }}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
