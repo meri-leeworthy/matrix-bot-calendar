@@ -11,25 +11,22 @@ fn main() {
     panic!("This file is not supposed to be executed");
 }
 
+pub struct CalDavCredentials {
+    pub username: String,
+    pub password: String,
+    pub server_url: String,
+}
+
 /// Initializes a Provider, and run an initial sync from the server
-pub async fn initial_sync(cache_folder: &str) -> CalDavProvider {
-    dotenv().ok();
-
-    let (server_url, username, password) = match (
-        env::var("CALDAV_SERVER_URL"),
-        env::var("CALDAV_USERNAME"),
-        env::var("CALDAV_PASSWORD"),
-    ) {
-        (Ok(h), Ok(u), Ok(p)) => (h, u, p),
-        _ => {
-            eprintln!("Environment variables CALDAV_SERVER_URL, CALDAV_USERNAME, and CALDAV_PASSWORD must be set.");
-            panic!("Missing environment variables");
-        }
-    };
-
+pub async fn initial_sync(cache_folder: &str, credentials: CalDavCredentials) -> CalDavProvider {
     let cache_path = Path::new(cache_folder);
 
-    let client = Client::new(server_url, username, password).unwrap();
+    let client = Client::new(
+        credentials.server_url,
+        credentials.username,
+        credentials.password,
+    )
+    .unwrap();
     let cache = match Cache::from_folder(&cache_path) {
         Ok(cache) => cache,
         Err(err) => {
