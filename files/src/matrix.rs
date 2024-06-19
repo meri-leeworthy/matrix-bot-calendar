@@ -49,6 +49,12 @@ struct FullSession {
     sync_token: Option<String>,
 }
 
+pub struct MatrixCredentials {
+    pub username: String,
+    pub password: String,
+    pub homeserver: String,
+}
+
 /// Restore a previous session.
 pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<String>)> {
     println!(
@@ -83,22 +89,20 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Opt
 pub async fn login(
     data_dir: &Path,
     session_file: &Path,
-    username: &str,
-    password: &str,
-    homeserver: String,
+    credentials: MatrixCredentials,
 ) -> anyhow::Result<Client> {
     println!("No previous session found, logging in…");
 
-    let (client, client_session) = build_client(data_dir, homeserver).await?;
+    let (client, client_session) = build_client(data_dir, credentials.homeserver).await?;
     let matrix_auth = client.matrix_auth();
 
     match matrix_auth
-        .login_username(&username, &password)
+        .login_username(&credentials.username, &credentials.password)
         .initial_device_display_name("persist-session client")
         .await
     {
         Ok(_) => {
-            println!("Logged in as {username}");
+            println!("Logged in as {}", credentials.username);
         }
         Err(error) => {
             println!("Error logging in: {error}");

@@ -6,7 +6,7 @@ mod cal;
 use cal::{initial_sync, CalDavCredentials};
 
 mod matrix;
-use matrix::{login, restore_session, sync};
+use matrix::{login, restore_session, sync, MatrixCredentials};
 
 const CACHE_FOLDER: &str = "test_cache/provider_sync";
 
@@ -16,9 +16,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Load the environment variables from a .env file.
     dotenv().ok();
-    let homeserver_url = env::var("MATRIX_SERVER_URL").expect("MATRIX_SERVER_URL must be set");
-    let username = env::var("MATRIX_BOT_USERNAME").expect("MATRIX_BOT_USERNAME must be set");
-    let password = env::var("MATRIX_BOT_PASSWORD").expect("MATRIX_BOT_PASSWORD must be set");
+    let matrix_credentials = MatrixCredentials {
+        homeserver: env::var("MATRIX_SERVER_URL").expect("MATRIX_SERVER_URL must be set"),
+        username: env::var("MATRIX_BOT_USERNAME").expect("MATRIX_BOT_USERNAME must be set"),
+        password: env::var("MATRIX_BOT_PASSWORD").expect("MATRIX_BOT_PASSWORD must be set"),
+    };
 
     let caldav_credentials = CalDavCredentials {
         username: env::var("CALDAV_USERNAME").expect("CALDAV_USERNAME must be set"),
@@ -42,14 +44,7 @@ async fn main() -> anyhow::Result<()> {
         restore_session(&session_file).await?
     } else {
         (
-            login(
-                &data_dir,
-                &session_file,
-                &username,
-                &password,
-                homeserver_url,
-            )
-            .await?,
+            login(&data_dir, &session_file, matrix_credentials).await?,
             None,
         )
     };
