@@ -1,5 +1,6 @@
 use matrix_sdk::{
     config::SyncSettings,
+    event_handler::{EventHandler, SyncEvent},
     matrix_auth::MatrixSession,
     ruma::{
         api::client::filter::FilterDefinition,
@@ -11,7 +12,7 @@ use matrix_sdk::{
     Client, Error, LoopCtrl, Room, RoomState,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
 
 use std::path::Path;
@@ -195,11 +196,17 @@ async fn build_client(
 }
 
 /// Setup the client to listen to new messages.
-pub async fn sync(
+pub async fn sync<Ev, Ctx, H>(
     client: Client,
     initial_sync_token: Option<String>,
     session_file: &Path,
-) -> anyhow::Result<()> {
+    on_room_message: H,
+) -> anyhow::Result<()>
+where
+    Ev: SyncEvent + DeserializeOwned + Send + 'static,
+    Ctx: Send + Sync + 'static,
+    H: EventHandler<Ev, Ctx> + Send + Sync + 'static,
+{
     println!("Launching a first sync to ignore past messages…");
 
     // Enable room members lazy-loading, it will speed up the initial sync a lot
@@ -271,40 +278,6 @@ async fn persist_sync_token(session_file: &Path, sync_token: String) -> anyhow::
     fs::write(session_file, serialized_session).await?;
 
     Ok(())
-}
-
-/// Handle room messages.
-async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
-    // We only want to log text messages in joined rooms.
-    if room.state() != RoomState::Joined {
-        return;
-    }
-
-    let MessageType::Text(text_content) = &event.content.msgtype else {
-        return;
-    };
-
-    if text_content.body.contains("!party") {
-        let content = RoomMessageEventContent::text_plain("🎉🎊🥳 let's PARTY!! 🥳🎊🎉");
-
-        println!("sending");
-
-        // Send our message to the room we found the "!party" command in
-        room.send(content).await.unwrap();
-
-        println!("message sent");
-    }
-
-    let room_name = match room.display_name().await {
-        Ok(room_name) => room_name.to_string(),
-        Err(error) => {
-            println!("Error getting room display name: {error}");
-            // Let's fallback to the room ID.
-            room.room_id().to_string()
-        }
-    };
-
-    println!("[{room_name}] {}: {}", event.sender, text_content.body)
 }
 
 async fn on_room_invite(event: StrippedRoomMemberEvent, room: Room) {

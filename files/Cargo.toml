@@ -10,7 +10,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.8.5"
 dirs = "5.0.1"
+minidom = "0.13"
 tracing-subscriber = "0.3"
 dotenv = "0.15"
 anyhow = "1.0"
-kitchen-fridge = "0.4.0"
+url = { version = "2.2", features = ["serde"] }
+ical = "0.11"
+reqwest = "0.11"
+chrono = { version = "0.4", features = ["serde"] }
+log = "0.4"
