@@ -1,15 +1,16 @@
-use chrono::{Duration, Utc};
+use chrono::{Datelike, Duration, Utc, Weekday};
 use dotenv::dotenv;
 use matrix_sdk::{
     ruma::{
-        api::client::message,
-        events::room::message::{
-            MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
+        events::{
+            policy::rule::room,
+            room::message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
         },
+        RoomId,
     },
-    Room, RoomState,
+    Client, Room, RoomState,
 };
-use std::env;
+use std::{env, sync::Arc};
 
 mod cal;
 use cal::{get_calendar_events, CalDavCredentials};
@@ -18,19 +19,8 @@ use event::EventTime;
 mod matrix;
 mod parser;
 use matrix::{login, restore_session, sync, MatrixCredentials};
-
-// Basically the goal for the Matrix bot is
-// 1. To respond with a list of events to the !calendar command
-// 2. To post a list of upcoming events once a week
-//
-// Both of these require:
-// 1. Requesting events from the calendar, at least for the upcoming period ✅
-// 2. Filtering those events so only those on the day of the post and in
-//     the next 7 days are included
-// 3. Displaying the Date and Time in a nice human-readable way, in
-//     the correct timezone ✅
-// 4. Ordering them chronologically ✅
-// 5. Displaying them neatly in a message
+use std::time::Duration as StdDuration;
+use tokio::time::{interval_at, Instant};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -43,6 +33,12 @@ async fn main() -> anyhow::Result<()> {
         username: env::var("MATRIX_BOT_USERNAME").expect("MATRIX_BOT_USERNAME must be set"),
         password: env::var("MATRIX_BOT_PASSWORD").expect("MATRIX_BOT_PASSWORD must be set"),
     };
+
+    let room_id = env::var("MATRIX_ROOM_ID").expect("MATRIX_ROOM_ID must be set");
+    RoomId::parse(&room_id).expect("MATRIX_ROOM_ID must be a valid room ID");
+
+    // dry run to make sure env variables are set correctly
+    get_events_message().await;
 
     // The folder containing persisted Matrix data
     let data_dir = dirs::data_dir()
@@ -60,7 +56,12 @@ async fn main() -> anyhow::Result<()> {
         )
     };
 
-    sync(client, sync_token, &session_file, on_room_message)
+    let client = &Arc::new(client);
+
+    let client_clone = Arc::clone(&client);
+    tokio::spawn(post_weekly_message(client_clone, room_id.clone()));
+
+    sync(client.clone(), sync_token, &session_file, on_room_message)
         .await
         .map_err(Into::into)
 }
@@ -78,18 +79,18 @@ fn format_event_times(start: &EventTime, end: &EventTime) -> String {
             if *start_date == *end_date - Duration::days(1) {
                 format!("{} – All Day", format_datetime(start))
             } else {
-                format!("{} – {}", format_datetime(start), format_datetime(end))
+                format!("{} – {}\n", format_datetime(start), format_datetime(end))
             }
         }
         (EventTime::DateTime(start_datetime), EventTime::DateTime(end_datetime)) => {
             if start_datetime.date_naive() == end_datetime.date_naive() {
                 format!(
-                    "{} – {}",
+                    "{} – {}\n",
                     start_datetime.format("%-I:%M %p").to_string(),
                     format_datetime(end)
                 )
             } else {
-                format!("{} – {}", format_datetime(start), format_datetime(end))
+                format!("{} – {}\n", format_datetime(start), format_datetime(end))
             }
         }
         (EventTime::Date(_), EventTime::DateTime(_))
@@ -102,7 +103,10 @@ fn format_event_times(start: &EventTime, end: &EventTime) -> String {
 /// Handle room messages.
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to log text messages in joined rooms.
-    if room.state() != RoomState::Joined {
+    if room.state() != RoomState::Joined
+        || room.room_id().as_str()
+            != env::var("MATRIX_ROOM_ID").expect("MATRIX_ROOM_ID must be set")
+    {
         return;
     }
 
@@ -110,11 +114,83 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
         return;
     };
 
+    let (body, html_body) = get_events_message().await;
+
+    if text_content.body.contains("!calendar") || text_content.body.contains("!cal") {
+        let content = RoomMessageEventContent::text_html(body, html_body);
+
+        log::info!("sending");
+
+        // Send our message to the room we found the "!calendar" command in
+        match room.send(content).await {
+            Ok(_) => log::info!("message sent"),
+            Err(error) => {
+                log::error!("Error sending message: {error}");
+            }
+        }
+    }
+
+    let room_name = match room.display_name().await {
+        Ok(room_name) => room_name.to_string(),
+        Err(error) => {
+            log::error!("Error getting room display name: {error}");
+            // Let's fallback to the room ID.
+            room.room_id().to_string()
+        }
+    };
+
+    log::info!("[{room_name}] {}: {}", event.sender, text_content.body)
+}
+
+pub async fn post_weekly_message(client: Arc<Client>, room_id: String) {
+    // Calculate the next instance of the specific time
+    let now = Utc::now();
+    let days_until_sunday =
+        (Weekday::Sun.num_days_from_monday() + 7 - now.weekday().num_days_from_monday()) % 7;
+    let next_sunday = now.date() + Duration::days(days_until_sunday.into());
+    let target_time = match next_sunday.and_hms_opt(9, 0, 0) {
+        Some(time) => time,
+        None => {
+            log::error!("Failed to calculate the next Sunday at 9:00 AM");
+            return;
+        }
+    };
+
+    let duration_until_target = (target_time - now)
+        .to_std()
+        .unwrap_or(StdDuration::from_secs(0));
+    let start = Instant::now() + duration_until_target;
+
+    let mut interval = interval_at(start, StdDuration::from_secs(7 * 24 * 60 * 60)); // 1 week interval
+
+    loop {
+        interval.tick().await;
+
+        let room_id = RoomId::parse(&room_id).expect("Invalid room ID");
+
+        // Post message to the room
+        if let Some(room) = client.get_room(&room_id) {
+            let (body, html_body) = get_events_message().await;
+            let content = RoomMessageEventContent::text_html(body, html_body);
+
+            match room.send(content).await {
+                Ok(_) => log::info!("Weekly message sent"),
+                Err(error) => {
+                    log::error!("Error sending weekly message: {error}");
+                }
+            }
+        } else {
+            log::error!("Failed to find room with ID {}", room_id);
+        }
+    }
+}
+
+async fn get_events_message() -> (String, String) {
     let caldav_credentials = CalDavCredentials::new(
         env::var("CALDAV_SERVER_URL")
             .expect("CALDAV_SERVER_URL must be set")
             .parse()
-            .unwrap(),
+            .expect("CALDAV_SERVER_URL must be a valid URL"),
         env::var("CALDAV_USERNAME").expect("CALDAV_USERNAME must be set"),
         env::var("CALDAV_PASSWORD").expect("CALDAV_PASSWORD must be set"),
     );
@@ -126,38 +202,34 @@ async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     let end = start + window;
 
     // get the calendar events from caldav calendar
-    let events = get_calendar_events(caldav_credentials, &start, &end).await;
+    if let Ok(events) = get_calendar_events(caldav_credentials, &start, &end).await {
+        let mut body = String::from("Upcoming Events");
+        let mut html_body = String::from("<h3>Upcoming Events</h3><br />");
 
-    let mut message = String::new();
+        if events.len() == 0 {
+            body += "No events in the calendar this week";
+            html_body += "<p>No events in the calendar this week</p>";
+        };
 
-    for event in events.unwrap() {
-        message = message
-            + &format!(
-                "{}: \n{}\n",
+        for event in events {
+            body += &format!(
+                "{}: \n{}\n\n",
                 event.name(),
                 format_event_times(event.dtstart(), event.dtend())
             );
-    }
 
-    if text_content.body.contains("!calendar") {
-        let content = RoomMessageEventContent::text_plain(message);
-
-        println!("sending");
-
-        // Send our message to the room we found the "!calendar" command in
-        room.send(content).await.unwrap();
-
-        println!("message sent");
-    }
-
-    let room_name = match room.display_name().await {
-        Ok(room_name) => room_name.to_string(),
-        Err(error) => {
-            println!("Error getting room display name: {error}");
-            // Let's fallback to the room ID.
-            room.room_id().to_string()
+            html_body += &format!(
+                "<p><strong>{}</strong><br />{}</p>",
+                event.name(),
+                format_event_times(event.dtstart(), event.dtend())
+            );
         }
-    };
 
-    println!("[{room_name}] {}: {}", event.sender, text_content.body)
+        (body, html_body)
+    } else {
+        (
+            "Failed to get calendar events".to_string(),
+            "<p>Failed to get calendar events</p>".to_string(),
+        )
+    }
 }

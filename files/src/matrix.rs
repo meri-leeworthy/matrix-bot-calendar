@@ -2,20 +2,14 @@ use matrix_sdk::{
     config::SyncSettings,
     event_handler::{EventHandler, SyncEvent},
     matrix_auth::MatrixSession,
-    ruma::{
-        api::client::filter::FilterDefinition,
-        events::room::{
-            member::StrippedRoomMemberEvent,
-            message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
-        },
-    },
-    Client, Error, LoopCtrl, Room, RoomState,
+    ruma::{api::client::filter::FilterDefinition, events::room::member::StrippedRoomMemberEvent},
+    Client, Error, LoopCtrl, Room,
 };
 use rand::{distributions::Alphanumeric, thread_rng, Rng};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use tokio::fs;
 
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 
 use std::path::PathBuf;
 
@@ -58,7 +52,7 @@ pub struct MatrixCredentials {
 
 /// Restore a previous session.
 pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Option<String>)> {
-    println!(
+    log::info!(
         "Previous session found in '{}'",
         session_file.to_string_lossy()
     );
@@ -78,7 +72,7 @@ pub async fn restore_session(session_file: &Path) -> anyhow::Result<(Client, Opt
         .build()
         .await?;
 
-    println!("Restoring session for {}…", user_session.meta.user_id);
+    log::info!("Restoring session for {}…", user_session.meta.user_id);
 
     // Restore the Matrix user session.
     client.restore_session(user_session).await?;
@@ -92,7 +86,7 @@ pub async fn login(
     session_file: &Path,
     credentials: MatrixCredentials,
 ) -> anyhow::Result<Client> {
-    println!("No previous session found, logging in…");
+    log::info!("No previous session found, logging in…");
 
     let (client, client_session) = build_client(data_dir, credentials.homeserver).await?;
     let matrix_auth = client.matrix_auth();
@@ -103,11 +97,11 @@ pub async fn login(
         .await
     {
         Ok(_) => {
-            println!("Logged in as {}", credentials.username);
+            log::info!("Logged in as {}", credentials.username);
         }
         Err(error) => {
-            println!("Error logging in: {error}");
-            println!("Please try again\n");
+            log::error!("Error logging in: {error}");
+            log::error!("Please try again\n");
         }
     }
 
@@ -125,7 +119,7 @@ pub async fn login(
     })?;
     fs::write(session_file, serialized_session).await?;
 
-    println!("Session persisted in {}", session_file.to_string_lossy());
+    log::info!("Session persisted in {}", session_file.to_string_lossy());
 
     // After logging in, you might want to verify this session with another one (see
     // the `emoji_verification` example), or bootstrap cross-signing if this is your
@@ -183,8 +177,8 @@ async fn build_client(
             matrix_sdk::ClientBuildError::AutoDiscovery(_)
             | matrix_sdk::ClientBuildError::Url(_)
             | matrix_sdk::ClientBuildError::Http(_) => {
-                println!("Error checking the homeserver: {error}");
-                println!("Please try again\n");
+                log::error!("Error checking the homeserver: {error}");
+                log::error!("Please try again\n");
                 Err(error.into())
             }
             _ => {
@@ -197,7 +191,7 @@ async fn build_client(
 
 /// Setup the client to listen to new messages.
 pub async fn sync<Ev, Ctx, H>(
-    client: Client,
+    client: Arc<Client>,
     initial_sync_token: Option<String>,
     session_file: &Path,
     on_room_message: H,
@@ -207,7 +201,7 @@ where
     Ctx: Send + Sync + 'static,
     H: EventHandler<Ev, Ctx> + Send + Sync + 'static,
 {
-    println!("Launching a first sync to ignore past messages…");
+    log::info!("Launching a first sync to ignore past messages…");
 
     // Enable room members lazy-loading, it will speed up the initial sync a lot
     // with accounts in lots of rooms.
@@ -237,13 +231,13 @@ where
                 break;
             }
             Err(error) => {
-                println!("An error occurred during initial sync: {error}");
-                println!("Trying again…");
+                log::error!("An error occurred during initial sync: {error}");
+                log::error!("Trying again…");
             }
         }
     }
 
-    println!("The client is ready! Listening to new messages…");
+    log::info!("The client is ready! Listening to new messages…");
 
     // Now that we've synced, let's attach a handler for incoming room messages.
     client.add_event_handler(on_room_message);
@@ -282,7 +276,14 @@ async fn persist_sync_token(session_file: &Path, sync_token: String) -> anyhow::
 
 async fn on_room_invite(event: StrippedRoomMemberEvent, room: Room) {
     if event.state_key == *room.own_user_id() {
-        println!("Accepting invite for room: {}", room.room_id());
-        room.join().await.unwrap();
+        log::info!("Accepting invite for room: {}", room.room_id());
+        match room.join().await {
+            Ok(_) => {
+                log::info!("Joined room: {}", room.room_id());
+            }
+            Err(err) => {
+                log::error!("Error joining room: {err}");
+            }
+        }
     }
 }

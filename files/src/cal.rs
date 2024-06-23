@@ -69,32 +69,36 @@ pub async fn get_calendar_events(
         end = end.format("%Y%m%dT%H%M%SZ").to_string()
     );
 
-    println!("Requesting items from my calendar");
+    log::info!("Requesting items from my calendar");
     let responses_result =
         sub_request_and_extract_elems(&credentials, "REPORT", cal_body, "response").await;
     let responses = match responses_result {
         Ok(responses) => responses,
         Err(err) => {
-            println!("Error: {}", err);
+            log::error!("Error: {}", err);
             return Ok(Vec::new());
         }
     };
 
-    // println!("Response: {:?}", responses);
+    log::debug!("Response: {:?}", responses);
 
     let calendar_data_vec = extract_calendar_data(&responses);
-    println!("calendar_data_vec: {:?}", calendar_data_vec.len());
+    log::debug!("calendar_data_vec: {:?}", calendar_data_vec.len());
 
     let mut events = Vec::new();
 
     for calendar_data in calendar_data_vec {
-        // println!("calendar_data: {}", calendar_data);
+        log::debug!("calendar_data: {}", calendar_data);
         let resource_url = credentials.url().clone();
-        let parsed = parser::parse(&calendar_data, resource_url).unwrap();
-        events.push(parsed);
+        match parser::parse(&calendar_data, resource_url) {
+            Ok(parsed) => events.push(parsed),
+            Err(err) => {
+                log::error!("Error: {}", err);
+            }
+        };
     }
 
-    println!("events: {:?}", events.len());
+    log::debug!("events: {:?}", events.len());
 
     events.sort();
 
@@ -128,10 +132,6 @@ fn extract_calendar_data(root: &Vec<Element>) -> Vec<String> {
     calendar_data_vec
 }
 
-fn filter_events(events: Vec<Event>) -> Vec<Event> {
-    unimplemented!()
-}
-
 pub async fn sub_request(
     resource: &CalDavCredentials,
     method: &str,
@@ -152,8 +152,8 @@ pub async fn sub_request(
     let status = res.status();
     let text = res.text().await?;
 
-    // println!("Response status: {:?}", status);
-    // println!("Response body: {}", text);
+    log::debug!("Response status: {:?}", status);
+    log::debug!("Response body: {}", text);
 
     if status.is_success() == false {
         return Err(format!("Unexpected HTTP status code {:?}", status).into());

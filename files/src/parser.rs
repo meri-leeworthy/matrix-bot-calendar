@@ -90,21 +90,33 @@ pub fn parse(content: &str, item_url: Url) -> Result<Event, Box<dyn Error>> {
                 )
                 .into())
             }
-            EventTime::Date(dtend) => {
-                let dtstart = dtstart.as_date().unwrap().to_owned();
+            EventTime::Date(dtend) => match dtstart.as_date() {
+                Some(dtstart) => {
+                    if dtstart > &dtend {
+                        return Err(format!("DTSTART for item {} is after DTEND", item_url).into());
+                    }
+                    let dtstart = dtstart.to_owned();
 
-                Event::new_all_day(
-                    name,
-                    uid,
-                    dtstart,
-                    dtend,
-                    location,
-                    description,
-                    item_url,
-                    last_modified,
-                    creation_date,
-                )
-            }
+                    Event::new_all_day(
+                        name,
+                        uid,
+                        dtstart,
+                        dtend,
+                        location,
+                        description,
+                        item_url,
+                        last_modified,
+                        creation_date,
+                    )
+                }
+                None => {
+                    return Err(format!(
+                        "DTSTART for item {} is a datetime, but DTEND is a date",
+                        item_url
+                    )
+                    .into());
+                }
+            },
         },
     };
 
