@@ -35,5 +35,8 @@ COPY --from=0 /usr/src/matrix_calendar_bot/target/release/matrix_calendar_bot .
 # Copy the .env file
 COPY .env .env
 
+# Set the environment variable for logging
+ENV RUST_LOG=error
+
 # Run the application
 CMD ["./matrix_calendar_bot"]
