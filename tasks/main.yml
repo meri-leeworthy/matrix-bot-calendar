@@ -57,6 +57,8 @@
       notify: Reload systemd
 
 - tags:
+    - setup-all
+    - setup-matrix-bot-calendar
     - start
   block:
     - name: Run Matrix Bot container

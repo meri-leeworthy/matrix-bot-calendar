@@ -1,6 +1,8 @@
 # handlers/main.yml
 - tags:
     - start
+    - setup-all
+    - setup-matrix-bot-calendar
   block:
     - name: Reload systemd
       ansible.builtin.systemd:
