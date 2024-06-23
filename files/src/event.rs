@@ -19,12 +19,12 @@ impl EventTime {
         }
     }
 
-    pub fn as_datetime(&self) -> Option<&DateTime<Utc>> {
-        match self {
-            EventTime::DateTime(datetime) => Some(datetime),
-            _ => None,
-        }
-    }
+    // pub fn as_datetime(&self) -> Option<&DateTime<Utc>> {
+    //     match self {
+    //         EventTime::DateTime(datetime) => Some(datetime),
+    //         _ => None,
+    //     }
+    // }
 }
 
 impl Ord for EventTime {
@@ -122,13 +122,13 @@ impl Event {
         }
     }
 
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
+    // pub fn url(&self) -> &Url {
+    //     &self.url
+    // }
 
-    pub fn uid(&self) -> &str {
-        &self.uid
-    }
+    // pub fn uid(&self) -> &str {
+    //     &self.uid
+    // }
 
     pub fn name(&self) -> &str {
         &self.name
@@ -142,32 +142,32 @@ impl Event {
         &self.dtend
     }
 
-    pub fn location(&self) -> Option<&String> {
-        self.location.as_ref()
-    }
+    // pub fn location(&self) -> Option<&String> {
+    //     self.location.as_ref()
+    // }
 
-    pub fn description(&self) -> Option<&String> {
-        self.description.as_ref()
-    }
+    // pub fn description(&self) -> Option<&String> {
+    //     self.description.as_ref()
+    // }
 
-    pub fn last_modified(&self) -> &DateTime<Utc> {
-        &self.last_modified
-    }
+    // pub fn last_modified(&self) -> &DateTime<Utc> {
+    //     &self.last_modified
+    // }
 
-    pub fn creation_date(&self) -> Option<&DateTime<Utc>> {
-        self.creation_date.as_ref()
-    }
+    // pub fn creation_date(&self) -> Option<&DateTime<Utc>> {
+    //     self.creation_date.as_ref()
+    // }
 
-    #[cfg(any(test, feature = "integration_tests"))]
-    pub fn has_same_observable_content_as(&self, other: &Event) -> bool {
-        self.uid == other.uid
-            && self.name == other.name
-            && self.dtstart == other.dtstart
-            && self.dtend == other.dtend
-            && self.location == other.location
-            && self.description == other.description
-            && self.last_modified == other.last_modified
-    }
+    // #[cfg(any(test, feature = "integration_tests"))]
+    // pub fn has_same_observable_content_as(&self, other: &Event) -> bool {
+    //     self.uid == other.uid
+    //         && self.name == other.name
+    //         && self.dtstart == other.dtstart
+    //         && self.dtend == other.dtend
+    //         && self.location == other.location
+    //         && self.description == other.description
+    //         && self.last_modified == other.last_modified
+    // }
 }
 
 impl Ord for Event {
