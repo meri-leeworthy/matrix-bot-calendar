@@ -2,9 +2,8 @@ use chrono::{Datelike, Duration, Utc, Weekday};
 use dotenv::dotenv;
 use matrix_sdk::{
     ruma::{
-        events::{
-            policy::rule::room,
-            room::message::{MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent},
+        events::room::message::{
+            MessageType, OriginalSyncRoomMessageEvent, RoomMessageEventContent,
         },
         RoomId,
     },
@@ -34,9 +33,6 @@ async fn main() -> anyhow::Result<()> {
         password: env::var("MATRIX_BOT_PASSWORD").expect("MATRIX_BOT_PASSWORD must be set"),
     };
 
-    let room_id = env::var("MATRIX_ROOM_ID").expect("MATRIX_ROOM_ID must be set");
-    RoomId::parse(&room_id).expect("MATRIX_ROOM_ID must be a valid room ID");
-
     // dry run to make sure env variables are set correctly
     get_events_message().await;
 
@@ -58,8 +54,12 @@ async fn main() -> anyhow::Result<()> {
 
     let client = &Arc::new(client);
 
-    let client_clone = Arc::clone(&client);
-    tokio::spawn(post_weekly_message(client_clone, room_id.clone()));
+    let room_ids = get_room_ids();
+    for id in room_ids {
+        let client_clone = Arc::clone(&client);
+        RoomId::parse(&id).expect("MATRIX_ROOM_IDS must be a valid room ID");
+        tokio::spawn(post_weekly_message(client_clone, id.clone()));
+    }
 
     sync(client.clone(), sync_token, &session_file, on_room_message)
         .await
@@ -104,8 +104,9 @@ fn format_event_times(start: &EventTime, end: &EventTime) -> String {
 async fn on_room_message(event: OriginalSyncRoomMessageEvent, room: Room) {
     // We only want to log text messages in joined rooms.
     if room.state() != RoomState::Joined
-        || room.room_id().as_str()
-            != env::var("MATRIX_ROOM_ID").expect("MATRIX_ROOM_ID must be set")
+        || !get_room_ids()
+            .iter()
+            .any(|id| id == room.room_id().as_str())
     {
         return;
     }
@@ -232,4 +233,9 @@ async fn get_events_message() -> (String, String) {
             "<p>Failed to get calendar events</p>".to_string(),
         )
     }
+}
+
+fn get_room_ids() -> Vec<String> {
+    let room_ids = env::var("MATRIX_ROOM_IDS").expect("MATRIX_ROOM_IDS must be set");
+    room_ids.split(',').map(|s| s.to_string()).collect()
 }
